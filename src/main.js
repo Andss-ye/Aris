@@ -26,12 +26,14 @@ function animate(now) {
 
   if (dropAnims.length) tickDropAnims(dt);
 
-  // --- game tick ---
-  resources.tick(dt);
-  waves.tick(dt);
-  enemies.tick(dt);
-  combat.tick(dt);
-  projectiles.tick(dt);
+  // --- game tick (congelado en menú / pausa / fin de partida) ---
+  if (!waves.isPaused()) {
+    resources.tick(dt);
+    waves.tick(dt);
+    enemies.tick(dt);
+    combat.tick(dt);
+    projectiles.tick(dt);
+  }
 
   renderer.render(scene, camera);
 }
@@ -42,6 +44,6 @@ selectTool(TOOLS[0]);
 initControls();
 loadInitialScene();
 resources.init();
-waves.start();
+waves.start({ reloadScene: loadInitialScene });
 onResize();
 requestAnimationFrame(animate);

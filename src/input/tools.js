@@ -55,12 +55,15 @@ export function selectTool(t) {
   for (const fn of listeners) fn(t);
 }
 
+const DEPOSIT_LABEL = { iron_deposit: 'hierro', crystal_deposit: 'cristal' };
+
 // Mapea un click en (x,z) a una mutación según la herramienta activa.
 export function applyTool(x, z) {
   const cell = world[x][z];
 
   if (selectedTool.erase) {
     if (cell.kind && cell.kind !== 'base') setCell(x, z, { terrain: cell.terrain, kind: null });
+    else if (cell.kind === 'base') resources.notify('No puedes borrar la Base', 'warn');
     return;
   }
 
@@ -68,15 +71,18 @@ export function applyTool(x, z) {
   if (!kind) return;
 
   // No construir sobre ocupado, sobre la base, ni sobre cráteres.
-  if (cell.kind) return;
-  if (cell.terrain === 'crater') return;
+  if (cell.kind) { resources.notify('Casilla ocupada', 'warn'); return; }
+  if (cell.terrain === 'crater') { resources.notify('No se puede construir en un cráter', 'warn'); return; }
 
   // Minas/reactores requieren el depósito correcto.
   const struct = STRUCT[kind];
-  if (struct.tile && cell.terrain !== struct.tile) return;
+  if (struct.tile && cell.terrain !== struct.tile) {
+    resources.notify(`Requiere depósito de ${DEPOSIT_LABEL[struct.tile] || struct.tile}`, 'warn');
+    return;
+  }
 
   const cost = struct.levels[0].cost || {};
-  if (!resources.canAfford(cost)) return;
+  if (!resources.canAfford(cost)) { resources.notify('Recursos insuficientes', 'warn'); return; }
   resources.spend(cost);
 
   setCell(x, z, { terrain: cell.terrain, kind, level: 0 });

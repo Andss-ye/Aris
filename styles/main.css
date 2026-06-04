@@ -6,6 +6,7 @@
   --line: #ebe3d2;
   --line-soft: #f3ecdc;
   --accent: #3a72c8;
+  --mars: #c1502e;
   --shadow: 0 18px 50px -20px rgba(50, 35, 10, 0.18), 0 2px 6px -2px rgba(50, 35, 10, 0.08);
 }
 * { box-sizing: border-box; }
@@ -184,3 +185,152 @@ canvas.dragging { cursor: grabbing; }
   .tool { width: 52px; height: 56px; font-size: 10px; }
   .tool .swatch { width: 22px; height: 22px; }
 }
+
+/* =====================================================================
+   GAME UI (Andrew) — HUD, oleadas, overlays, menú, mejoras, toast.
+   index.html está congelado; estos elementos los crea el JS y se estilan aquí.
+   ===================================================================== */
+
+/* La marca "Aris Builder" del HTML congelado no aplica al juego: se oculta. */
+.brand { display: none; }
+
+/* --- HUD de recursos (arriba-centro) --- */
+#hud {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 40;
+  display: flex; gap: 20px; align-items: center; padding: 9px 18px;
+  background: rgba(255, 255, 255, 0.86); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow);
+  font-weight: 600; font-size: 15px; color: var(--ink);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+#hud .res { display: inline-flex; align-items: baseline; gap: 5px; }
+#hud .res .ic { font-size: 15px; }
+#hud .res b { font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+#hud .res i { font-style: normal; font-size: 11px; font-weight: 600; color: #5aa12f; min-width: 36px; }
+
+/* --- HUD de oleada (arriba-izquierda; la marca queda oculta) --- */
+#waveHud {
+  position: fixed; top: 18px; left: 18px; z-index: 40;
+  display: flex; align-items: center; gap: 12px; padding: 9px 14px;
+  background: rgba(255, 255, 255, 0.86); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow);
+  font-weight: 600; font-size: 14px; color: var(--ink);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+#waveHud #wavePhase { white-space: nowrap; }
+#waveHud #waveInfo { font-weight: 500; color: var(--muted); white-space: nowrap; }
+#earlyBtn {
+  border: none; border-radius: 9px; padding: 6px 12px; background: var(--mars);
+  color: #fff; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(193, 80, 46, 0.35); white-space: nowrap;
+}
+#earlyBtn:hover { filter: brightness(1.07); }
+#earlyBtn:active { transform: translateY(1px); }
+
+/* --- Barra de vida de la Base (abajo-izquierda) --- */
+#baseBar {
+  position: fixed; left: 16px; bottom: 16px; z-index: 40;
+  width: 220px; height: 22px; background: rgba(0, 0, 0, 0.22);
+  border-radius: 11px; overflow: hidden; box-shadow: var(--shadow);
+  font-size: 12px; font-weight: 600; color: #fff;
+}
+#baseBar .fill { height: 100%; width: 100%; background: #4caf50; transition: width 0.2s, background 0.2s; }
+#baseBar .lbl {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+/* --- Overlay (menú / pausa / fin) --- */
+.overlay {
+  position: fixed; inset: 0; z-index: 80; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(20, 12, 8, 0.55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+.overlay-panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+  padding: 34px 38px; max-width: 440px; width: calc(100vw - 48px);
+  text-align: center; box-shadow: var(--shadow); animation: pop 0.22s ease-out;
+}
+@keyframes pop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.overlay-panel h1 {
+  font-family: 'Fraunces', Georgia, serif; font-weight: 500; font-size: 30px; margin: 0 0 6px;
+}
+.overlay-panel h1 em { font-style: italic; color: var(--mars); }
+.overlay-panel h2 { font-family: 'Fraunces', Georgia, serif; font-weight: 500; font-size: 24px; margin: 0 0 14px; }
+.overlay-panel .lead { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+.overlay-panel .stat { font-size: 15px; margin: 0 0 18px; }
+.overlay-panel .hint { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+.overlay-panel.win h1 { color: #3fae54; }
+.overlay-panel.lose h1 { color: #e0492f; }
+
+.diff-row { display: flex; gap: 8px; margin: 0 0 18px; }
+.diff-opt {
+  flex: 1; display: flex; flex-direction: column; gap: 3px; align-items: center;
+  padding: 10px 8px; border: 1px solid var(--line); border-radius: 12px;
+  background: #faf7f0; cursor: pointer; font-family: inherit; font-weight: 600;
+  font-size: 13px; color: var(--ink); transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.diff-opt small { font-weight: 500; font-size: 10px; color: var(--muted); }
+.diff-opt:hover { background: #f4ecd8; }
+.diff-opt.sel { border-color: var(--mars); background: #fbeae3; box-shadow: inset 0 0 0 2px rgba(193, 80, 46, 0.18); }
+
+.menu-btn {
+  display: block; width: 100%; margin: 8px 0 0; padding: 12px; border: none;
+  border-radius: 12px; font-family: inherit; font-weight: 600; font-size: 15px;
+  cursor: pointer; transition: filter 0.12s, transform 0.08s;
+}
+.menu-btn.primary { background: var(--mars); color: #fff; box-shadow: 0 4px 14px rgba(193, 80, 46, 0.35); }
+.menu-btn:not(.primary):not(.ghost) { background: var(--accent); color: #fff; }
+.menu-btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.menu-btn:hover { filter: brightness(1.06); }
+.menu-btn:active { transform: translateY(1px); }
+
+/* --- Panel de mejora --- */
+#upgradePanel {
+  position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%); z-index: 60;
+  min-width: 240px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 14px 16px 16px; box-shadow: var(--shadow);
+  display: none; text-align: left;
+}
+#upgradePanel .up-title { font-weight: 600; font-size: 15px; text-transform: capitalize; margin: 0 0 2px; }
+#upgradePanel .up-lvl { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+#upgradePanel .up-stats { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; font-size: 12.5px; }
+#upgradePanel .up-stats .row { display: flex; justify-content: space-between; gap: 16px; }
+#upgradePanel .up-stats .row span:first-child { color: var(--muted); }
+#upgradePanel .up-stats .row span:last-child { font-weight: 600; }
+#upgradePanel .up-btn {
+  width: 100%; padding: 10px; border: none; border-radius: 10px; font-family: inherit;
+  font-weight: 600; font-size: 13.5px; cursor: pointer; background: var(--accent); color: #fff;
+}
+#upgradePanel .up-btn.afford-no, #upgradePanel .up-btn[disabled] { background: #d2c6b2; cursor: not-allowed; }
+#upgradePanel .up-max { text-align: center; color: var(--muted); font-size: 13px; padding: 6px 0; }
+#upgradePanel .up-close {
+  position: absolute; top: 8px; right: 10px; border: none; background: none;
+  cursor: pointer; font-size: 15px; color: var(--muted);
+}
+
+/* --- Toast de feedback --- */
+#toast {
+  position: fixed; bottom: 108px; left: 50%; transform: translateX(-50%) translateY(10px);
+  z-index: 70; padding: 10px 18px; border-radius: 12px; background: rgba(40, 28, 20, 0.92);
+  color: #fff; font-size: 13px; font-weight: 600; box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.warn { background: rgba(176, 58, 30, 0.94); }
+#toast.good { background: rgba(46, 120, 60, 0.94); }
+
+/* --- Visibilidad por fase: el HUD de juego y la barra solo en partida --- */
+#hud, #waveHud, #baseBar { transition: opacity 0.25s; }
+body[data-phase="menu"] #hud,
+body[data-phase="menu"] #waveHud,
+body[data-phase="menu"] #baseBar,
+body[data-phase="over"] #waveHud { opacity: 0; pointer-events: none; }
+
+/* La barra de herramientas y los controles solo durante la partida. */
+.toolbar, .controls, .help { transition: opacity 0.25s; }
+body[data-phase="menu"] .toolbar,
+body[data-phase="menu"] .controls,
+body[data-phase="menu"] .help,
+body[data-phase="over"] .toolbar,
+body[data-phase="over"] .help { opacity: 0; pointer-events: none; }
