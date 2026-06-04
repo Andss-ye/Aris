@@ -14,9 +14,12 @@ import { GRID } from '../config/constants.js';
 export const world = [];
 export const cellMeshes = {}; // 'x,z' -> { tile, object }
 
-// Fill the grid with a default cell. Called at import and by resets.
-// Cell shape (contrato 3.1): { terrain, kind, level, hp, maxHp }.
-export function fillWorld(make = () => ({ terrain: 'rock_mars', kind: null, level: 0, hp: 0, maxHp: 0 })) {
+// Cell shape (frozen contract, read by all verticals):
+//   { terrain, kind, level, hp, maxHp }
+// terrain: 'rock_mars'|'dust'|'crater'|'iron_deposit'|'crystal_deposit'
+// kind:    null|'base'|'tower'|'wall'|'mine'|'reactor'|'hydroponics'
+// `floors` is retained for legacy world-builder kinds (house/etc.).
+export function fillWorld(make = () => ({ terrain: 'rock_mars', kind: null, level: 0, hp: 0, maxHp: 0, floors: 1 })) {
   for (let x = 0; x < GRID; x++) {
     world[x] = world[x] || [];
     for (let z = 0; z < GRID; z++) world[x][z] = make(x, z);

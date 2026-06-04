@@ -1,31 +1,50 @@
 /* =====================================================================
-   Aris — Muro de Titanio. Dueño: JONATHAN.
-   PLACEHOLDER de Fase 0: slab alto. level 1 más alto/grueso, level 2
-   electrificado (línea luminosa emisiva).
+   Aris — Titanium Wall factory
+   makeWall(level): 0 basic, 1 reinforced (corner posts), 2 electrified
+   (emissive strips + node). Slab grows taller at level >= 1.
    ===================================================================== */
 
-import { roundedBox, castReceive } from '../geometry/shapes.js';
-
-const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+import { castReceive, roundedBox } from '../geometry/shapes.js';
+import { MM } from './marsMaterials.js';
 
 export function makeWall(level = 0) {
   const g = new THREE.Group();
-  g.userData.kind = 'wall';
+  const h = level === 0 ? 0.62 : 0.85;
+  const w = 0.84, d = 0.84;
 
-  const h = level >= 1 ? 0.9 : 0.7;
-  const slab = new THREE.Mesh(roundedBox(0.78, h, 0.78, 0.08), lam(level >= 1 ? 0x4a4f57 : 0x5a606a));
-  slab.position.y = h / 2;
-  g.add(slab);
+  const body = new THREE.Mesh(roundedBox(w, h, d, 0.05), MM.titanium);
+  g.add(body);
+
+  // dark cap rim
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.06, d + 0.02), MM.titaniumDark);
+  cap.position.y = h;
+  g.add(cap);
+
+  if (level >= 1) {
+    // corner reinforcement posts
+    const postGeo = new THREE.BoxGeometry(0.12, h + 0.06, 0.12);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const p = new THREE.Mesh(postGeo, MM.steelDark);
+      p.position.set(sx * (w / 2 - 0.04), (h + 0.06) / 2, sz * (d / 2 - 0.04));
+      g.add(p);
+    }
+  }
 
   if (level >= 2) {
-    const glow = new THREE.Mesh(
-      new THREE.BoxGeometry(0.82, 0.06, 0.82),
-      new THREE.MeshLambertMaterial({ color: 0x33ccff, emissive: 0x1188cc, emissiveIntensity: 0.9 })
-    );
-    glow.position.y = h * 0.7;
-    g.add(glow);
+    // electrified strips on both long faces + a glowing node on top
+    const stripGeo = new THREE.BoxGeometry(w + 0.04, 0.05, 0.05);
+    const front = new THREE.Mesh(stripGeo, MM.electrified);
+    front.position.set(0, h * 0.7, d / 2 + 0.01);
+    g.add(front);
+    const back = new THREE.Mesh(stripGeo, MM.electrified);
+    back.position.set(0, h * 0.7, -d / 2 - 0.01);
+    g.add(back);
+    const node = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), MM.electrified);
+    node.position.y = h + 0.12;
+    g.add(node);
   }
 
   castReceive(g);
+  g.userData = { kind: 'wall', level };
   return g;
 }
