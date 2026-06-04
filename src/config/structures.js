@@ -17,24 +17,24 @@ export const STRUCT = {
   mine: {
     tile: 'iron_deposit',
     levels: [
-      { cost: { iron: 5 }, ironPerSec: 3 },
-      { cost: { iron: 10 }, ironPerSec: 6 },
-      { cost: { energy: 8 }, ironPerSec: 10, crystalEvery: 30 },
+      { cost: { iron: 5 }, hp: 60, ironPerSec: 3 },
+      { cost: { iron: 10 }, hp: 60, ironPerSec: 6 },
+      { cost: { energy: 8 }, hp: 60, ironPerSec: 10, crystalEvery: 30 },
     ],
   },
   reactor: {
     tile: 'crystal_deposit',
     levels: [
-      { cost: { iron: 8 }, energyPerSec: 3 },
-      { cost: { iron: 10 }, energyPerSec: 6 },
-      { cost: { crystal: 5 }, energyPerSec: 12 },
+      { cost: { iron: 8 }, hp: 60, energyPerSec: 3 },
+      { cost: { iron: 10 }, hp: 60, energyPerSec: 6 },
+      { cost: { crystal: 5 }, hp: 60, energyPerSec: 12 },
     ],
   },
   tower: {
     levels: [
-      { cost: { iron: 12, energy: 8 }, range: 3, fireRate: 2, dmg: 15, aoe: 0 },
-      { cost: { energy: 10 }, range: 3, fireRate: 1, dmg: 15, aoe: 0 },
-      { cost: { crystal: 8 }, range: 3, fireRate: 1, dmg: 30, aoe: 1 },
+      { cost: { iron: 12, energy: 8 }, hp: 80, range: 3, fireRate: 2, dmg: 15, aoe: 0 },
+      { cost: { energy: 10 }, hp: 80, range: 3, fireRate: 1, dmg: 15, aoe: 0 },
+      { cost: { crystal: 8 }, hp: 80, range: 3, fireRate: 1, dmg: 30, aoe: 1 },
     ],
   },
   wall: {
@@ -46,9 +46,9 @@ export const STRUCT = {
   },
   hydroponics: {
     levels: [
-      { cost: { iron: 10, energy: 5 }, baseHealPerSec: 1 },
-      { cost: { energy: 8 }, baseHealPerSec: 3 },
-      { cost: { crystal: 5 }, baseHealPerSec: 3, repairAdjacent: 1 },
+      { cost: { iron: 10, energy: 5 }, hp: 40, baseHealPerSec: 1 },
+      { cost: { energy: 8 }, hp: 40, baseHealPerSec: 3 },
+      { cost: { crystal: 5 }, hp: 40, baseHealPerSec: 3, repairAdjacent: 1 },
     ],
   },
 };
