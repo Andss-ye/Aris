@@ -1,28 +1,30 @@
 /* =====================================================================
-   Aris — tool palette + placement logic
+   Aris — tool palette + placement logic (Mars colony)
    Owns the available tools, the toolbar UI, the current selection, and
-   applyTool() which maps a click on a cell to a world mutation. Extend the
-   game by adding entries to TOOLS (+ a matching factory/kind).
+   applyTool() which maps a click on a cell to a world mutation.
+   Structures: click to place (level 0), click again on the same kind to
+   upgrade (level +1). Mine/Reactor require their deposit tile.
    ===================================================================== */
 
-import { MAX_FLOORS } from '../config/constants.js';
+import { GRID } from '../config/constants.js';
 import { world } from '../world/state.js';
-import { setCell } from '../world/render.js';
+import { setCell, placeBase } from '../world/render.js';
+import { STRUCT } from '../config/structures.js';
 
 export const TOOLS = [
-  { id: 'grass',  label: 'Grass',  terrain: 'grass', color: '#9ec74b' },
-  { id: 'path',   label: 'Path',   terrain: 'path',  color: '#e8d5a8' },
-  { id: 'dirt',   label: 'Dirt',   terrain: 'dirt',  color: '#5a3b27' },
-  { id: 'water',  label: 'Water',  terrain: 'water', color: '#4a90c2' },
-  { id: 'house',  label: 'House',  kind: 'house', color: '#3a72c8' },
-  { id: 'tree',   label: 'Tree',   kind: 'tree',  color: '#6fb442' },
-  { id: 'fence',  label: 'Fence',  kind: 'fence', color: '#8a5a3b' },
-  { id: 'crop',   label: 'Crop',   kind: 'crop',  terrainOverride: 'dirt', color: '#86c544' },
-  { id: 'tuft',   label: 'Tuft',   kind: 'tuft',  color: '#86b53e' },
-  { id: 'erase',  label: 'Erase',  erase: true, color: 'transparent', eraser: true },
+  { id: 'base',    label: 'Base',    kind: 'base',    color: '#cdd3d8' },
+  { id: 'tower',   label: 'Torre',   kind: 'tower',   color: '#46e0ff' },
+  { id: 'wall',    label: 'Muro',    kind: 'wall',    color: '#7e8893' },
+  { id: 'mine',    label: 'Mina',    kind: 'mine',    requiresTerrain: 'iron_deposit',    color: '#ffb020' },
+  { id: 'reactor', label: 'Reactor', kind: 'reactor', requiresTerrain: 'crystal_deposit', color: '#36c8ff' },
+  { id: 'hydro',   label: 'Hidro',   kind: 'hydroponics', color: '#4fe06a' },
+  { id: 'fe',      label: 'Dep. Fe', terrain: 'iron_deposit',    color: '#9aa1a8' },
+  { id: 'cy',      label: 'Dep. Cy', terrain: 'crystal_deposit', color: '#7d5fe6' },
+  { id: 'rock',    label: 'Roca',    terrain: 'rock_mars',       color: '#b24a26' },
+  { id: 'erase',   label: 'Borrar',  erase: true, color: 'transparent', eraser: true },
 ];
 
-let selectedTool = TOOLS[5]; // start on Tree — feels inviting
+let selectedTool = TOOLS[1]; // start on Torre
 const listeners = [];
 
 export function getSelectedTool() { return selectedTool; }
@@ -62,27 +64,75 @@ export function selectTool(t) {
   for (const fn of listeners) fn(t);
 }
 
+// Crater is not buildable (per idea.md); everything else is.
+function isBuildable(terrain) {
+  return terrain !== 'crater';
+}
+
+// Clear a 2x2 base by resolving its anchor from any of the four cells.
+function clearBase(x, z) {
+  const ax = (x > 0 && world[x - 1][z].kind === 'base') ? x - 1 : x;
+  const az = (z > 0 && world[x][z - 1].kind === 'base') ? z - 1 : z;
+  for (let dx = 0; dx < 2; dx++) {
+    for (let dz = 0; dz < 2; dz++) {
+      const cx = ax + dx, cz = az + dz;
+      if (cx < GRID && cz < GRID && world[cx][cz].kind === 'base') {
+        setCell(cx, cz, { terrain: world[cx][cz].terrain, kind: null });
+      }
+    }
+  }
+}
+
 // Map a click on cell (x,z) to a world mutation based on the active tool.
 export function applyTool(x, z) {
   const cell = world[x][z];
+
+  // -------- erase --------
   if (selectedTool.erase) {
-    if (cell.kind) setCell(x, z, { terrain: cell.terrain, kind: null });
-    else if (cell.terrain !== 'grass') setCell(x, z, { terrain: 'grass', kind: null });
+    if (cell.kind === 'base') { clearBase(x, z); return; }
+    if (cell.kind) { setCell(x, z, { terrain: cell.terrain, kind: null }); return; }
+    if (cell.terrain !== 'rock_mars') setCell(x, z, { terrain: 'rock_mars', kind: null });
     return;
   }
-  if (selectedTool.kind === 'house' && cell.kind === 'house') {
-    // Stack: clicking the house tool on an existing house adds a floor.
-    const newFloors = Math.min((cell.floors || 1) + 1, MAX_FLOORS);
-    if (newFloors === (cell.floors || 1)) return;
-    setCell(x, z, { terrain: cell.terrain, kind: 'house', floors: newFloors });
-    return;
-  }
-  if (selectedTool.kind) {
-    const newTerrain = selectedTool.terrainOverride || cell.terrain;
-    setCell(x, z, { terrain: newTerrain, kind: selectedTool.kind });
-    return;
-  }
+
+  // -------- terrain brushes --------
   if (selectedTool.terrain) {
-    setCell(x, z, { terrain: selectedTool.terrain, kind: cell.kind, floors: cell.floors });
+    if (cell.kind === 'base') return;          // don't repaint under the base
+    setCell(x, z, { terrain: selectedTool.terrain, kind: cell.kind, level: cell.level });
+    return;
+  }
+
+  // -------- base (2x2) --------
+  if (selectedTool.kind === 'base') {
+    const ax = Math.min(x, GRID - 2);
+    const az = Math.min(z, GRID - 2);
+    // every one of the four cells must be empty and buildable
+    for (let dx = 0; dx < 2; dx++) {
+      for (let dz = 0; dz < 2; dz++) {
+        const c = world[ax + dx][az + dz];
+        if (c.kind || !isBuildable(c.terrain)) return;
+      }
+    }
+    placeBase(ax, az, 0);
+    return;
+  }
+
+  // -------- single-cell structures --------
+  if (selectedTool.kind) {
+    // clicking the same kind upgrades it (level +1, capped at max)
+    if (cell.kind === selectedTool.kind) {
+      const def = STRUCT[cell.kind];
+      const maxLevel = (def ? def.levels.length : 1) - 1;
+      const next = Math.min((cell.level || 0) + 1, maxLevel);
+      if (next === (cell.level || 0)) return;
+      setCell(x, z, { terrain: cell.terrain, kind: cell.kind, level: next });
+      return;
+    }
+    // no overbuilding: never place on a cell that already holds a structure
+    if (cell.kind) return;
+    if (!isBuildable(cell.terrain)) return;                  // crater not buildable
+    // mine/reactor only work on their deposit tile
+    if (selectedTool.requiresTerrain && cell.terrain !== selectedTool.requiresTerrain) return;
+    setCell(x, z, { terrain: cell.terrain, kind: selectedTool.kind, level: 0 });
   }
 }

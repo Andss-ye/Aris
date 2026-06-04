@@ -17,6 +17,13 @@ import { makeFence } from '../factories/fence.js';
 import { makeHouse, makeStretchedHouse, buildCompositeHouse, buildSquareHouse } from '../factories/house/builder.js';
 import { findHouseCluster } from '../factories/house/cluster.js';
 import { getFenceNeighbors, bfsHouseCluster } from './adjacency.js';
+import { makeBase } from '../factories/base.js';
+import { makeTower } from '../factories/tower.js';
+import { makeWall } from '../factories/wall.js';
+import { makeMine } from '../factories/mine.js';
+import { makeReactor } from '../factories/reactor.js';
+import { makeHydroponics } from '../factories/hydroponics.js';
+import { STRUCT, structMaxHp } from '../config/structures.js';
 
 // -------- low-level renderers (build the actual meshes from world state) --------
 export function renderCellTile(x, z, opts) {
@@ -56,10 +63,27 @@ export function renderCellObject(x, z, opts) {
   let posX = null, posZ = null;
   let setGridUserData = true;
 
+  const lvl = world[x][z].level || 0;
   if      (kind === 'tree')  mesh = makeTree();
   else if (kind === 'tuft')  mesh = makeTuft();
   else if (kind === 'crop')  mesh = makeCrop();
   else if (kind === 'fence') mesh = makeFence(getFenceNeighbors(x, z));
+  // ---- Mars colony structures ----
+  else if (kind === 'tower')       mesh = makeTower(lvl);
+  else if (kind === 'wall')        mesh = makeWall(lvl);
+  else if (kind === 'mine')        mesh = makeMine(lvl);
+  else if (kind === 'reactor')     mesh = makeReactor(lvl);
+  else if (kind === 'hydroponics') mesh = makeHydroponics(lvl);
+  else if (kind === 'base') {
+    // 2x2 footprint: only the min-corner (no base neighbor to -x or -z) renders.
+    const leftBase = x > 0     && world[x - 1][z].kind === 'base';
+    const upBase    = z > 0     && world[x][z - 1].kind === 'base';
+    if (leftBase || upBase) return;                 // non-anchor cell renders nothing
+    mesh = makeBase(lvl);
+    posX = (x + 0.5) - GRID / 2 + 0.5;              // centre between the 4 cells
+    posZ = (z + 0.5) - GRID / 2 + 0.5;
+    setGridUserData = false;                        // spans 4 cells; let pickTile fall through
+  }
   else if (kind === 'house') {
     const cluster = findHouseCluster(x, z);
     if (!cluster.isAnchor) return;          // non-anchor cluster cells render nothing
@@ -111,8 +135,8 @@ export function renderCellObject(x, z, opts) {
 // Central mutation entry point. Updates world state, then re-renders every cell
 // whose mesh might change as a result of this edit.
 export function setCell(x, z, opts) {
-  const { terrain, kind = null, floors, tileDelay = 0, objectDelay = 0, animate = true, forceTile = false } = opts;
-  const prev = world[x][z] || { terrain: null, kind: null, floors: 1 };
+  const { terrain, kind = null, floors, level, hp, tileDelay = 0, objectDelay = 0, animate = true, forceTile = false } = opts;
+  const prev = world[x][z] || { terrain: null, kind: null, floors: 1, level: 0, hp: 0, maxHp: 0 };
   const terrainChanged = prev.terrain !== terrain;
   const kindChanged    = (prev.kind || null) !== (kind || null);
   // floors default: when placing a fresh kind, start at 1; when preserving the
@@ -120,7 +144,20 @@ export function setCell(x, z, opts) {
   const newFloors = (floors !== undefined) ? floors
                   : (kindChanged ? 1 : (prev.floors || 1));
   const floorsChanged = (prev.floors || 1) !== newFloors;
-  world[x][z] = { terrain, kind: kind || null, floors: newFloors };
+
+  // level: explicit, else 0 on a fresh kind, else preserve. (upgrades pass level)
+  const newLevel = (level !== undefined) ? level : (kindChanged ? 0 : (prev.level || 0));
+  const levelChanged = (prev.level || 0) !== newLevel;
+
+  // hp/maxHp from STRUCT: full HP when (re)placed or upgraded; otherwise keep
+  // the current damage state (so a neighbour refresh never heals a structure).
+  const newMaxHp = (kind && STRUCT[kind]) ? structMaxHp(kind, newLevel) : 0;
+  let newHp;
+  if (hp !== undefined)               newHp = hp;
+  else if (kindChanged || levelChanged) newHp = newMaxHp;
+  else                                newHp = (prev.hp != null ? prev.hp : newMaxHp);
+
+  world[x][z] = { terrain, kind: kind || null, floors: newFloors, level: newLevel, hp: newHp, maxHp: newMaxHp };
 
   // For house clusters, every cell shares the floors count. Propagate to all.
   if (kind === 'house' && floorsChanged) {
@@ -132,7 +169,7 @@ export function setCell(x, z, opts) {
   if (terrainChanged || forceTile) {
     renderCellTile(x, z, { animate, delay: tileDelay });
   }
-  if (!kindChanged && !floorsChanged) return;
+  if (!kindChanged && !floorsChanged && !levelChanged) return;
 
   // The "primary" cell is whichever cell's mesh visually represents the change.
   // For house placements that join/extend a cluster, that's the cluster anchor —
@@ -169,4 +206,46 @@ export function setCell(x, z, opts) {
       delay:   isPrimary ? objectDelay : 0,
     });
   }
+}
+
+// -------- structure damage (frozen contract 3.6) --------
+// Julian calls this when an enemy hits a wall/structure, so the combat vertical
+// never mutates `world` directly. Decrements hp; removes the structure at <= 0.
+// The base HP pool is owned by the economy vertical (resources.damageBase), so
+// base cells are intentionally ignored here.
+export function damageStructure(x, z, dmg) {
+  const cell = world[x] && world[x][z];
+  if (!cell || !cell.kind || cell.kind === 'base') return;
+  cell.hp = (cell.hp || 0) - dmg;
+  if (cell.hp <= 0) {
+    setCell(x, z, { terrain: cell.terrain, kind: null });
+  }
+}
+
+// -------- base placement helper (2x2) --------
+// Writes the four base cells (anchor = ax,az) then renders the anchor mesh.
+export function placeBase(ax, az, level = 0) {
+  const maxHp = structMaxHp('base', level);
+  for (let dx = 0; dx < 2; dx++) {
+    for (let dz = 0; dz < 2; dz++) {
+      const cx = ax + dx, cz = az + dz;
+      if (cx >= GRID || cz >= GRID) continue;
+      const terrain = world[cx][cz].terrain;
+      world[cx][cz] = { terrain, kind: 'base', floors: 1, level, hp: maxHp, maxHp };
+    }
+  }
+  renderCellObject(ax, az, { animate: true });
+}
+
+// -------- isolated dev harness --------
+// Exposed on window so Jonathan's vertical can be exercised from the browser
+// console without the economy (Andrew) or enemies (Julian) verticals present.
+// e.g. setCell(8,8,{kind:'tower',level:0}) then bump level to preview meshes.
+if (typeof window !== 'undefined') {
+  window.setCell = setCell;
+  window.world = world;
+  window.tilePos = tilePos;
+  window.STRUCT = STRUCT;
+  window.damageStructure = damageStructure;
+  window.placeBase = placeBase;
 }

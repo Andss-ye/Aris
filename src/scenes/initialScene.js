@@ -1,8 +1,8 @@
 /* =====================================================================
-   Aris — initial / demo scene
-   Defines the starting layout and the staggered "drop-in" load animation.
-   This is the place to author new starting maps; gameplay logic stays in the
-   world/render layer. doClear() resets the board to bare grass.
+   Aris — initial Mars colony scene
+   16x16 board of Martian rock with dust patches, a couple of craters, the
+   2x2 command Base centred on the grid, and scattered iron/crystal deposits
+   for mines/reactors. doClear() resets to bare Martian rock.
    ===================================================================== */
 
 import { GRID } from '../config/constants.js';
@@ -10,7 +10,13 @@ import { world, cellMeshes } from '../world/state.js';
 import { worldGroup } from '../core/engine.js';
 import { dropAnims } from '../core/animation.js';
 import { disposeGroup } from '../geometry/shapes.js';
-import { setCell } from '../world/render.js';
+import { setCell, placeBase } from '../world/render.js';
+
+// Deterministic layout so deposits never collide with the central base.
+const DUST   = ['5,9', '6,9', '5,10', '6,10', '10,6', '11,6', '10,5', '9,11'];
+const CRATER = ['2,5', '13,11', '4,13'];
+const IRON   = ['3,3', '12,3', '3,12', '12,12'];
+const CRYSTAL = ['8,2', '8,13', '2,8', '13,8'];
 
 export function loadInitialScene() {
   // Wipe any existing meshes + animation state so a Reset re-plays the drop.
@@ -22,56 +28,42 @@ export function loadInitialScene() {
   for (const k of Object.keys(cellMeshes)) delete cellMeshes[k];
   for (let x = 0; x < GRID; x++)
     for (let z = 0; z < GRID; z++)
-      world[x][z] = { terrain: null, kind: null, floors: 1 };
+      world[x][z] = { terrain: null, kind: null, level: 0, hp: 0, maxHp: 0, floors: 1 };
   dropAnims.length = 0;
 
-  // Build the layout in one shot so each cell only animates once.
-  const layout = {};
-  for (let x = 0; x < GRID; x++)
-    for (let z = 0; z < GRID; z++)
-      layout[x + ',' + z] = { terrain: 'grass', kind: null };
-
-  layout['2,3'] = { terrain: 'grass', kind: 'house' };
-  for (let z = 4; z < GRID; z++) layout['2,' + z] = { terrain: 'path', kind: null };
-  layout['0,5'] = { terrain: 'grass', kind: 'tree' };
-  layout['5,1'] = { terrain: 'grass', kind: 'tree' };
-  for (let cx = 5; cx <= 6; cx++)
-    for (let cz = 4; cz <= 5; cz++)
-      layout[cx + ',' + cz] = { terrain: 'dirt', kind: 'crop' };
-  layout['4,4'] = { terrain: 'grass', kind: 'fence' };
-  layout['4,5'] = { terrain: 'grass', kind: 'fence' };
-  layout['5,3'] = { terrain: 'grass', kind: 'fence' };
-  layout['6,3'] = { terrain: 'grass', kind: 'fence' };
-  layout['1,6'] = { terrain: 'grass', kind: 'tuft' };
-  layout['4,6'] = { terrain: 'grass', kind: 'tuft' };
-  layout['0,2'] = { terrain: 'grass', kind: 'tuft' };
-  layout['6,7'] = { terrain: 'grass', kind: 'tuft' };
+  // Per-cell terrain only (structures placed after). rock_mars by default.
+  const terrainAt = (x, z) => {
+    const key = x + ',' + z;
+    if (IRON.includes(key))    return 'iron_deposit';
+    if (CRYSTAL.includes(key)) return 'crystal_deposit';
+    if (CRATER.includes(key))  return 'crater';
+    if (DUST.includes(key))    return 'dust';
+    return 'rock_mars';
+  };
 
   // Diagonal sweep — small (x+z) lands first, far corner lands last.
-  // Objects land slightly after their tile so it feels like layers stacking.
-  const TILE_STAGGER = 0.035;
-  const OBJECT_OFFSET = 0.22;
+  const TILE_STAGGER = 0.03;
   for (let x = 0; x < GRID; x++) {
     for (let z = 0; z < GRID; z++) {
-      const cell = layout[x + ',' + z];
-      const baseDelay = (x + z) * TILE_STAGGER;
       setCell(x, z, {
-        terrain: cell.terrain,
-        kind: cell.kind,
-        tileDelay: baseDelay,
-        objectDelay: baseDelay + OBJECT_OFFSET,
+        terrain: terrainAt(x, z),
+        kind: null,
+        tileDelay: (x + z) * TILE_STAGGER,
       });
     }
   }
+
+  // Central 2x2 command base — anchor (7,7) centres it on the 16x16 grid.
+  placeBase(7, 7, 0);
 }
 
-// Clear the board to bare grass with a quick staggered tile re-drop.
+// Clear the board to bare Martian rock with a quick staggered tile re-drop.
 export function clearScene() {
-  const TILE_STAGGER = 0.022;
+  const TILE_STAGGER = 0.02;
   for (let x = 0; x < GRID; x++)
     for (let z = 0; z < GRID; z++)
       setCell(x, z, {
-        terrain: 'grass',
+        terrain: 'rock_mars',
         kind: null,
         tileDelay: (x + z) * TILE_STAGGER,
         forceTile: true,
