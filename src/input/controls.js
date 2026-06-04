@@ -10,8 +10,9 @@ import { M } from '../materials/materials.js';
 import { scene, renderer, worldGroup, camera, orbit, zoom, pan, togglePerspective } from '../core/engine.js';
 import { world, tilePos } from '../world/state.js';
 import { TOOLS, selectTool, getSelectedTool, applyTool, onToolChange } from './tools.js';
-import { loadInitialScene, clearScene } from '../scenes/initialScene.js';
+import { clearScene } from '../scenes/initialScene.js';
 import * as upgrades from '../game/upgrades.js';
+import * as waves from '../game/waves.js';
 
 // -------- hover indicator --------
 const hoverGeo = roundedSlab(TILE * 1.0, 0.04, 0.07);
@@ -95,8 +96,8 @@ export function initControls() {
       const { x, z } = currentHover;
       const cell = world[x][z];
       const tool = getSelectedTool();
-      // Click en estructura existente (no borrador) → panel de mejora.
-      if (cell.kind && cell.kind !== 'base' && !tool.erase) upgrades.open(x, z);
+      // Click en estructura existente (incluida la Base) sin borrador → panel de mejora.
+      if (cell.kind && !tool.erase) upgrades.open(x, z);
       else applyTool(x, z);
     }
     pointerDown = null;
@@ -118,6 +119,7 @@ export function initControls() {
   // -------- teclado --------
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'Escape') { waves.togglePause(); return; }
     const k = e.key.toLowerCase();
     if (k >= '1' && k <= '5') {
       const idx = parseInt(k, 10) - 1;
@@ -137,7 +139,8 @@ export function initControls() {
   document.getElementById('persp').addEventListener('click', doTogglePerspective);
 }
 
-function doReset() { loadInitialScene(); }
+// Reset = reiniciar la partida (tablero limpio + economía + vuelta a construcción).
+function doReset() { waves.beginRun(); }
 function doClear() { clearScene(); }
 function doTogglePerspective() {
   const mode = togglePerspective();
