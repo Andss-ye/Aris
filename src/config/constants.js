@@ -4,7 +4,7 @@
    ===================================================================== */
 
 // World grid
-export const GRID = 8;        // cells per side
+export const GRID = 16;       // cells per side (Mars colony 16×16)
 export const TILE = 1;        // world units per cell
 export const TOP_H = 0.18;    // grass slab thickness
 export const DIRT_H = 0.55;   // dirt block height (visible side)

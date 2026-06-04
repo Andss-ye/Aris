@@ -1,17 +1,17 @@
 /* =====================================================================
-   Aris — input & camera controls
-   Wires pointer/keyboard/wheel events to camera orbit, tile picking and tool
-   placement, plus the hover indicator and the top-right control buttons.
-   Call initControls() once after the toolbar exists.
+   Aris — input & cámara. Dueño: ANDREW.
+   Click izq: coloca (celda vacía) o abre upgrade (estructura existente).
+   Arrastre izq: orbitar. Arrastre derecho / WASD: panear. Rueda: zoom.
    ===================================================================== */
 
 import { TOP_H, TILE } from '../config/constants.js';
 import { roundedSlab } from '../geometry/shapes.js';
 import { M } from '../materials/materials.js';
-import { scene, renderer, worldGroup, camera, orbit, zoom, togglePerspective } from '../core/engine.js';
-import { tilePos } from '../world/state.js';
+import { scene, renderer, worldGroup, camera, orbit, zoom, pan, togglePerspective } from '../core/engine.js';
+import { world, tilePos } from '../world/state.js';
 import { TOOLS, selectTool, getSelectedTool, applyTool, onToolChange } from './tools.js';
 import { loadInitialScene, clearScene } from '../scenes/initialScene.js';
+import * as upgrades from '../game/upgrades.js';
 
 // -------- hover indicator --------
 const hoverGeo = roundedSlab(TILE * 1.0, 0.04, 0.07);
@@ -39,30 +39,31 @@ function pickTile(clientX, clientY) {
   return null;
 }
 
-// -------- pointer: drag-to-orbit + click-to-place --------
 let pointerDown = null;
 let lastPointer = null;
 let didDrag = false;
+let panning = false;
 const DRAG_THRESHOLD = 5;
+const PAN_KEY = 0.6;
 
 export function initControls() {
   const dom = renderer.domElement;
 
-  // Keep the hover indicator's tint in sync with the active tool.
-  onToolChange(t => { hoverMesh.material = t.erase ? M.hoverErase : M.hover; });
+  onToolChange((t) => { hoverMesh.material = t.erase ? M.hoverErase : M.hover; });
   hoverMesh.material = getSelectedTool().erase ? M.hoverErase : M.hover;
 
-  dom.addEventListener('pointerdown', e => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
-    pointerDown = { x: e.clientX, y: e.clientY };
+  dom.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  dom.addEventListener('pointerdown', (e) => {
+    pointerDown = { x: e.clientX, y: e.clientY, button: e.button };
     lastPointer = { x: e.clientX, y: e.clientY };
     didDrag = false;
+    panning = (e.button === 2); // botón derecho = paneo
     dom.classList.add('dragging');
     dom.setPointerCapture(e.pointerId);
   });
 
-  dom.addEventListener('pointermove', e => {
-    // hover update always
+  dom.addEventListener('pointermove', (e) => {
     const cell = pickTile(e.clientX, e.clientY);
     if (cell) {
       const p = tilePos(cell.x, cell.z);
@@ -81,7 +82,8 @@ export function initControls() {
       if (didDrag) {
         const ddx = e.clientX - lastPointer.x;
         const ddy = e.clientY - lastPointer.y;
-        orbit(ddx, ddy);
+        if (panning) pan(ddx, ddy);
+        else orbit(ddx, ddy);
       }
       lastPointer = { x: e.clientX, y: e.clientY };
     }
@@ -89,37 +91,47 @@ export function initControls() {
 
   dom.addEventListener('pointerup', () => {
     dom.classList.remove('dragging');
-    if (pointerDown && !didDrag && currentHover) {
-      applyTool(currentHover.x, currentHover.z);
+    if (pointerDown && !didDrag && !panning && currentHover) {
+      const { x, z } = currentHover;
+      const cell = world[x][z];
+      const tool = getSelectedTool();
+      // Click en estructura existente (no borrador) → panel de mejora.
+      if (cell.kind && cell.kind !== 'base' && !tool.erase) upgrades.open(x, z);
+      else applyTool(x, z);
     }
     pointerDown = null;
     lastPointer = null;
+    panning = false;
   });
 
   dom.addEventListener('pointercancel', () => {
     dom.classList.remove('dragging');
     pointerDown = null;
+    panning = false;
   });
 
-  dom.addEventListener('wheel', e => {
+  dom.addEventListener('wheel', (e) => {
     e.preventDefault();
     zoom(e.deltaY);
   }, { passive: false });
 
-  // -------- keyboard shortcuts --------
-  window.addEventListener('keydown', e => {
+  // -------- teclado --------
+  window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
     const k = e.key.toLowerCase();
-    if (k >= '1' && k <= '9') {
+    if (k >= '1' && k <= '5') {
       const idx = parseInt(k, 10) - 1;
       if (TOOLS[idx]) selectTool(TOOLS[idx]);
-    } else if (k === 'e') selectTool(TOOLS[9]);
+    } else if (k === 'e') selectTool(TOOLS[5]);
+    else if (k === 'w') pan(0, -PAN_KEY * 30);
+    else if (k === 's') pan(0, PAN_KEY * 30);
+    else if (k === 'a') pan(-PAN_KEY * 30, 0);
+    else if (k === 'd') pan(PAN_KEY * 30, 0);
     else if (k === 'r') doReset();
     else if (k === 'c') doClear();
     else if (k === 'p' || k === 'i') doTogglePerspective();
   });
 
-  // -------- control buttons --------
   document.getElementById('reset').addEventListener('click', doReset);
   document.getElementById('clear').addEventListener('click', doClear);
   document.getElementById('persp').addEventListener('click', doTogglePerspective);

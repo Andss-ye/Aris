@@ -1,34 +1,27 @@
 /* =====================================================================
-   Aris — tool palette + placement logic
-   Owns the available tools, the toolbar UI, the current selection, and
-   applyTool() which maps a click on a cell to a world mutation. Extend the
-   game by adding entries to TOOLS (+ a matching factory/kind).
+   Aris — paleta de herramientas + colocación. Dueño: ANDREW.
+   5 estructuras marcianas + borrador. applyTool valida terreno (depósitos),
+   ocupación y costo (resources.canAfford/spend) antes de setCell.
    ===================================================================== */
 
-import { MAX_FLOORS } from '../config/constants.js';
 import { world } from '../world/state.js';
 import { setCell } from '../world/render.js';
+import { STRUCT } from '../config/structures.js';
+import * as resources from './../game/resources.js';
 
 export const TOOLS = [
-  { id: 'grass',  label: 'Grass',  terrain: 'grass', color: '#9ec74b' },
-  { id: 'path',   label: 'Path',   terrain: 'path',  color: '#e8d5a8' },
-  { id: 'dirt',   label: 'Dirt',   terrain: 'dirt',  color: '#5a3b27' },
-  { id: 'water',  label: 'Water',  terrain: 'water', color: '#4a90c2' },
-  { id: 'house',  label: 'House',  kind: 'house', color: '#3a72c8' },
-  { id: 'tree',   label: 'Tree',   kind: 'tree',  color: '#6fb442' },
-  { id: 'fence',  label: 'Fence',  kind: 'fence', color: '#8a5a3b' },
-  { id: 'crop',   label: 'Crop',   kind: 'crop',  terrainOverride: 'dirt', color: '#86c544' },
-  { id: 'tuft',   label: 'Tuft',   kind: 'tuft',  color: '#86b53e' },
-  { id: 'erase',  label: 'Erase',  erase: true, color: 'transparent', eraser: true },
+  { id: 'tower',       label: 'Torre',       kind: 'tower',       color: '#4a90c2' },
+  { id: 'wall',        label: 'Muro',        kind: 'wall',        color: '#5a606a' },
+  { id: 'mine',        label: 'Mina',        kind: 'mine',        color: '#9c6b3a' },
+  { id: 'reactor',     label: 'Reactor',     kind: 'reactor',     color: '#66ddff' },
+  { id: 'hydroponics', label: 'Hidropónica', kind: 'hydroponics', color: '#4caf50' },
+  { id: 'erase',       label: 'Borrar',      erase: true, color: 'transparent', eraser: true },
 ];
 
-let selectedTool = TOOLS[5]; // start on Tree — feels inviting
+let selectedTool = TOOLS[0];
 const listeners = [];
 
 export function getSelectedTool() { return selectedTool; }
-
-// Register a callback fired whenever the selected tool changes (e.g. to update
-// the hover indicator material).
 export function onToolChange(fn) { listeners.push(fn); }
 
 export function buildToolbar() {
@@ -46,7 +39,7 @@ export function buildToolbar() {
     lbl.textContent = t.label;
     btn.appendChild(lbl);
     const k = document.createElement('kbd');
-    k.textContent = i < 9 ? String(i + 1) : 'E';
+    k.textContent = t.eraser ? 'E' : String(i + 1);
     btn.appendChild(k);
     btn.addEventListener('click', () => selectTool(t));
     if (t === selectedTool) btn.classList.add('active');
@@ -56,33 +49,35 @@ export function buildToolbar() {
 
 export function selectTool(t) {
   selectedTool = t;
-  document.querySelectorAll('.tool').forEach(b => {
+  document.querySelectorAll('.tool').forEach((b) => {
     b.classList.toggle('active', b.dataset.id === t.id);
   });
   for (const fn of listeners) fn(t);
 }
 
-// Map a click on cell (x,z) to a world mutation based on the active tool.
+// Mapea un click en (x,z) a una mutación según la herramienta activa.
 export function applyTool(x, z) {
   const cell = world[x][z];
+
   if (selectedTool.erase) {
-    if (cell.kind) setCell(x, z, { terrain: cell.terrain, kind: null });
-    else if (cell.terrain !== 'grass') setCell(x, z, { terrain: 'grass', kind: null });
+    if (cell.kind && cell.kind !== 'base') setCell(x, z, { terrain: cell.terrain, kind: null });
     return;
   }
-  if (selectedTool.kind === 'house' && cell.kind === 'house') {
-    // Stack: clicking the house tool on an existing house adds a floor.
-    const newFloors = Math.min((cell.floors || 1) + 1, MAX_FLOORS);
-    if (newFloors === (cell.floors || 1)) return;
-    setCell(x, z, { terrain: cell.terrain, kind: 'house', floors: newFloors });
-    return;
-  }
-  if (selectedTool.kind) {
-    const newTerrain = selectedTool.terrainOverride || cell.terrain;
-    setCell(x, z, { terrain: newTerrain, kind: selectedTool.kind });
-    return;
-  }
-  if (selectedTool.terrain) {
-    setCell(x, z, { terrain: selectedTool.terrain, kind: cell.kind, floors: cell.floors });
-  }
+
+  const kind = selectedTool.kind;
+  if (!kind) return;
+
+  // No construir sobre ocupado, sobre la base, ni sobre cráteres.
+  if (cell.kind) return;
+  if (cell.terrain === 'crater') return;
+
+  // Minas/reactores requieren el depósito correcto.
+  const struct = STRUCT[kind];
+  if (struct.tile && cell.terrain !== struct.tile) return;
+
+  const cost = struct.levels[0].cost || {};
+  if (!resources.canAfford(cost)) return;
+  resources.spend(cost);
+
+  setCell(x, z, { terrain: cell.terrain, kind, level: 0 });
 }

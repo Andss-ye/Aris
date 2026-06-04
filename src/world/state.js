@@ -15,7 +15,8 @@ export const world = [];
 export const cellMeshes = {}; // 'x,z' -> { tile, object }
 
 // Fill the grid with a default cell. Called at import and by resets.
-export function fillWorld(make = () => ({ terrain: 'grass', kind: null, floors: 1 })) {
+// Cell shape (contrato 3.1): { terrain, kind, level, hp, maxHp }.
+export function fillWorld(make = () => ({ terrain: 'rock_mars', kind: null, level: 0, hp: 0, maxHp: 0 })) {
   for (let x = 0; x < GRID; x++) {
     world[x] = world[x] || [];
     for (let z = 0; z < GRID; z++) world[x][z] = make(x, z);

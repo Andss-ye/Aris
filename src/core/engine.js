@@ -27,7 +27,7 @@ export const worldGroup = new THREE.Group();
 scene.add(worldGroup);
 
 // -------- cameras (orthographic + perspective) --------
-let viewSize = 7.5;
+let viewSize = 11; // grid is 16×16 → start zoomed out enough to frame it
 let cameraMode = 'ortho'; // 'ortho' | 'perspective'
 
 const aspect0 = window.innerWidth / window.innerHeight;
@@ -106,8 +106,22 @@ export function orbit(ddx, ddy) {
 }
 
 export function zoom(deltaY) {
-  viewSize = Math.max(4, Math.min(14, viewSize + deltaY * 0.005));
+  viewSize = Math.max(5, Math.min(20, viewSize + deltaY * 0.006));
   onResize();
+}
+
+// Pan the look-at target across the world XZ plane (screen-delta based),
+// rotated by the current azimuth so dragging feels camera-relative.
+// No internal imports: grid half-extent is clamped to a fixed bound.
+const PAN_BOUND = 9; // grid is 16 → half-extent 8, +1 slack
+export function pan(dx, dy) {
+  const s = viewSize * 0.00022;
+  const cos = Math.cos(azimuth), sin = Math.sin(azimuth);
+  target.x -= (dx * cos - dy * sin) * s * 10;
+  target.z -= (dx * sin + dy * cos) * s * 10;
+  target.x = Math.max(-PAN_BOUND, Math.min(PAN_BOUND, target.x));
+  target.z = Math.max(-PAN_BOUND, Math.min(PAN_BOUND, target.z));
+  updateCamera();
 }
 
 // Swap projection and return the new mode (so the UI can reflect button state).
