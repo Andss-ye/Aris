@@ -1,16 +1,18 @@
 /* =====================================================================
-   Aris — Enemigos. Dueño: JULIAN.
+   Aris — Enemigos. Dueño: JULIAN. (rama coliciones: colisión + barras de vida)
    Contrato 3.3: spawn/tick/list/damage/count/clear. 3 mallas (scout / tanque /
-   kamikaze; giant como variante de tanque), movimiento recto al centro (sin A*),
-   los tanques rompen muros en su camino vía damageStructure, y todos dañan la
-   Base al llegar al centro vía resources.damageBase. El kamikaze late y explota.
+   kamikaze; giant como variante de tanque) + barra de vida tipo billboard.
+   Movimiento recto al centro (sin A*). COLISIÓN GENERAL: cualquier enemigo que
+   intente entrar en una celda ocupada por una estructura se DETIENE y la ataca
+   con `dmg`/seg vía damageStructure (la Base vía resources.damageBase). El
+   kamikaze estalla al contacto (aoeDmg + salpicadura a estructuras vecinas).
    ===================================================================== */
 
 import { GRID } from '../config/constants.js';
 import { ENEMIES, BASE_HIT_DMG, WALL_DPS } from '../config/enemies.js';
 import { world, tilePos } from '../world/state.js';
 import { damageStructure } from '../world/render.js';
-import { worldGroup } from '../core/engine.js';
+import { worldGroup, camera } from '../core/engine.js';
 import { disposeGroup, castReceive } from '../geometry/shapes.js';
 import * as resources from './resources.js';
 
@@ -21,6 +23,10 @@ let nextId = 1;
 const CENTER = GRID / 2 - 0.5;
 // Altura a la que "flotan/ruedan" los enemigos sobre el tile.
 const GROUND = 0.18;
+
+// Barra de vida.
+const BAR_W = 0.5;
+const BAR_H = 0.07;
 
 const lam = (c, emissive = 0x000000) => new THREE.MeshLambertMaterial({ color: c, emissive });
 
@@ -127,6 +133,42 @@ function makeEnemyMesh(type, cfg) {
   return g;
 }
 
+// -------- barra de vida (billboard) --------
+// Group separado (no parentado al mesh) para que el latido del kamikaze no la
+// escale. Se orienta hacia la cámara cada frame y el relleno encoge desde la
+// derecha. depthTest:false → siempre legible por encima de las mallas.
+function makeHpBar() {
+  const g = new THREE.Group();
+  const bg = new THREE.Mesh(
+    new THREE.PlaneGeometry(BAR_W + 0.04, BAR_H + 0.04),
+    new THREE.MeshBasicMaterial({ color: 0x141414, transparent: true, opacity: 0.85, depthTest: false }),
+  );
+  bg.renderOrder = 998;
+  g.add(bg);
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(BAR_W, BAR_H),
+    new THREE.MeshBasicMaterial({ color: 0x4caf50, depthTest: false }),
+  );
+  fill.position.z = 0.001;
+  fill.renderOrder = 999;
+  g.add(fill);
+  g.userData.fill = fill;
+  worldGroup.add(g);
+  return g;
+}
+
+function updateHpBar(e) {
+  const bar = e.hpBar;
+  if (!bar) return;
+  bar.position.set(e.mesh.position.x, e.mesh.position.y + e.barY, e.mesh.position.z);
+  bar.quaternion.copy(camera.quaternion); // billboard: siempre de cara
+  const ratio = Math.max(0, Math.min(1, e.hp / e.maxHp));
+  const fill = bar.userData.fill;
+  fill.scale.x = ratio > 0 ? ratio : 0.0001;
+  fill.position.x = -(BAR_W / 2) * (1 - ratio);
+  fill.material.color.setHex(ratio > 0.5 ? 0x4caf50 : ratio > 0.25 ? 0xff9800 : 0xe53935);
+}
+
 // -------- contrato 3.3 --------
 export function spawn(type, edgeCell) {
   const cfg = ENEMIES[type] || ENEMIES.scout;
@@ -134,14 +176,20 @@ export function spawn(type, edgeCell) {
   const p = tilePos(edgeCell.x, edgeCell.z);
   mesh.position.set(p.x, GROUND, p.z);
   worldGroup.add(mesh);
-  pool.push({
-    id: nextId++, type, mesh, hp: cfg.hp, speed: cfg.speed,
+
+  const e = {
+    id: nextId++, type, mesh, hp: cfg.hp, maxHp: cfg.hp, speed: cfg.speed,
     pos: { x: edgeCell.x, z: edgeCell.z },
-    attacksWalls: !!cfg.attacksWalls,
+    dmg: cfg.dmg != null ? cfg.dmg : WALL_DPS,
     aoe: cfg.aoe || 0,
     aoeDmg: cfg.aoeDmg || 0,
     pulse: 0,
-  });
+    barY: cfg.size * 3.2 + 0.28, // altura de la barra sobre el suelo del enemigo
+    hpBar: null,
+  };
+  e.hpBar = makeHpBar();
+  pool.push(e);
+  updateHpBar(e);
 }
 
 export function tick(dt) {
@@ -156,11 +204,11 @@ export function tick(dt) {
     const dz = CENTER - e.pos.z;
     const d = Math.hypot(dx, dz);
 
-    // Llegada al centro: golpe a la Base (kamikaze explota con AOE).
+    // Respaldo: si alcanza el núcleo sin haber chocado antes, golpea la Base.
     if (d < 0.5) {
       if (e.type === 'kamikaze') {
         resources.damageBase(e.aoeDmg || BASE_HIT_DMG);
-        explodeWalls(e);
+        explodeStructures(e);
       } else {
         resources.damageBase(BASE_HIT_DMG);
       }
@@ -172,21 +220,37 @@ export function tick(dt) {
     const nx = e.pos.x + (dx / d) * step;
     const nz = e.pos.z + (dz / d) * step;
 
-    // Tanques/giants rompen un muro que bloquee la celda a la que entran.
-    if (e.attacksWalls) {
-      const cx = Math.round(nx);
-      const cz = Math.round(nz);
-      const blocking = inBounds(cx, cz) && world[cx][cz].kind === 'wall';
-      if (blocking) {
-        damageStructure(cx, cz, WALL_DPS * dt); // se queda quieto golpeando
+    // -------- COLISIÓN: ¿la celda a la que entra tiene una estructura? --------
+    const cx = Math.round(nx);
+    const cz = Math.round(nz);
+    const blockingKind = inBounds(cx, cz) ? world[cx][cz].kind : null;
+
+    if (blockingKind) {
+      if (e.type === 'kamikaze') {
+        // Estalla al contacto con cualquier estructura.
+        if (blockingKind === 'base') resources.damageBase(e.aoeDmg || BASE_HIT_DMG);
+        else damageStructure(cx, cz, e.aoeDmg || BASE_HIT_DMG);
+        explodeStructures(e);
+        removeEnemy(e);
         continue;
       }
+      // Resto: se detiene y ataca por segundo (Base o estructura).
+      if (blockingKind === 'base') resources.damageBase(e.dmg * dt);
+      else damageStructure(cx, cz, e.dmg * dt);
+      // Pequeño "empuje" de ataque hacia el objetivo (cosmético).
+      e.pulse += dt * 6;
+      e.mesh.position.x = tilePos(e.pos.x, e.pos.z).x + (dx / d) * Math.sin(e.pulse) * 0.04;
+      e.mesh.position.z = tilePos(e.pos.x, e.pos.z).z + (dz / d) * Math.sin(e.pulse) * 0.04;
+      updateHpBar(e);
+      continue; // no avanza mientras haya algo que destruir
     }
 
+    // Avance normal (celda libre).
     e.pos.x = nx;
     e.pos.z = nz;
     const p = tilePos(e.pos.x, e.pos.z);
     e.mesh.position.set(p.x, GROUND, p.z);
+    updateHpBar(e);
   }
 }
 
@@ -199,6 +263,7 @@ export function damage(id, amount) {
   if (!e) return;
   e.hp -= amount;
   if (e.hp <= 0) removeEnemy(e);
+  else updateHpBar(e);
 }
 
 export function count() { return pool.length; }
@@ -208,15 +273,16 @@ export function clear() {
 }
 
 // -------- internos --------
-// El kamikaze, al estallar en el centro, también daña muros adyacentes.
-function explodeWalls(e) {
+// Salpicadura del kamikaze: daña estructuras (no-base) en un radio alrededor.
+function explodeStructures(e) {
   const r = Math.max(1, Math.ceil(e.aoe));
   const cx = Math.round(e.pos.x);
   const cz = Math.round(e.pos.z);
   for (let x = cx - r; x <= cx + r; x++) {
     for (let z = cz - r; z <= cz + r; z++) {
       if (!inBounds(x, z)) continue;
-      if (world[x][z].kind === 'wall') damageStructure(x, z, e.aoeDmg || BASE_HIT_DMG);
+      const k = world[x][z].kind;
+      if (k && k !== 'base') damageStructure(x, z, e.aoeDmg || BASE_HIT_DMG);
     }
   }
 }
@@ -226,4 +292,10 @@ function removeEnemy(e) {
   if (idx >= 0) pool.splice(idx, 1);
   worldGroup.remove(e.mesh);
   disposeGroup(e.mesh);
+  if (e.hpBar) {
+    worldGroup.remove(e.hpBar);
+    disposeGroup(e.hpBar);
+    e.hpBar.traverse((o) => { if (o.material) o.material.dispose(); });
+    e.hpBar = null;
+  }
 }
