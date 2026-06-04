@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Aris</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div class="brand">
+    <div class="title">Aris <em>Builder</em></div>
+    <div class="sub">Click to place · drag to orbit · scroll to zoom</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="persp">Perspective</button>
+    <button class="btn" id="reset">↺ Reset</button>
+    <button class="btn" id="clear">Clear</button>
+  </div>
+
+  <div class="toolbar" id="toolbar"></div>
+
+  <div class="help">
+    <kbd>1</kbd>–<kbd>9</kbd> tools · <kbd>E</kbd> erase<br/>
+    <kbd>P</kbd> perspective · <kbd>R</kbd> reset · <kbd>C</kbd> clear
+  </div>
+
+  <!-- Three.js r128 as a classic global (modules below reference window.THREE) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
